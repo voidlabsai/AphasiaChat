@@ -14,111 +14,72 @@ from pathlib import Path
 import hashlib
 import tempfile
 import logging
+from audio_transcription_app import transcribe_audio, text_to_embedding, compare_embeddings
 logging.basicConfig(level=logging.INFO)
 
 
 # Initialize session state variables if they don't exist
 if 'title' not in st.session_state:
-    st.session_state.title = "ChatGPT with Document Query"  # Default title
-if 'show_selector' not in st.session_state:
-    st.session_state.show_selector = False  # Selector is hidden by default
-
-# Custom CSS to hide the Streamlit branding and hamburger menu (optional)
-st.markdown("""
-    <style>
-        header > div:first-child {
-            visibility: hidden;
-        }
-        header > div:last-child {
-            visibility: hidden;
-        }
-        .css-18e3th9 {
-            padding-top: 0;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-
-# Place the button and title in a columns layout
-col1, col2 = st.columns([9, 1])  # Adjust the width ratios as needed
-
-with col1:
-    # Display the title based on the session state
-    st.title(st.session_state.title)
-
-with col2:
-    # Using a button to toggle the display of the title selector
-    if st.button('🔧', key='toggle_title_selector'):
-        st.session_state.show_selector = not st.session_state.show_selector
-
-# Hidden title selector dropdown
-if st.session_state.show_selector:
-    option = st.selectbox(
-        'Choose the title:',
-        ['KJ Document Query', 'RfR Helpdesk Automation'],
-        key='title_selector'
-    )
-    # Update the title in the session state
-    st.session_state.title = option
-
+    st.session_state.title = "Aphasia Therapist"  # Default title
 
 # Define necessary embedding model, LLM, and vectorstore
 openai_api_key = st.secrets["OPENAI_API_KEY"]
+# OPENAI_API_KEY = ''
 text_key = "text"
 
 def hash_content(content):
     return hashlib.md5(content.encode('utf-8')).hexdigest()
 
-@st.cache_resource()
-def load_vectorstore(buffers=None):
-    example_docs_path = Path("example-docs")
-    filenames = list(example_docs_path.glob("*.pdf"))
+#@st.cache_data
+def process_audio(buffers=None):
+    example_audio_path = Path("example-audio")
+    filenames = list(example_audio_path.glob("*.mp3")) + list(example_audio_path.glob("*.wav"))
+    
+    audio_data = {}
+    for filename in filenames:
+        audio_data[filename.name] = {}
+        audio_data[filename.name]['text'] = transcribe_audio(str(filename))
+        audio_data[filename.name]['embedding'] = text_to_embedding(audio_data[filename.name]['text'])
 
-    loaders = [PyPDFLoader(str(filename)) for filename in filenames]
-    text_splitter_instance = CharacterTextSplitter(chunk_size=4000, chunk_overlap=200)
-    listOfPages = [loader.load_and_split(text_splitter=text_splitter_instance) for loader in loaders]
-
-    listOfBufferPages = []
     buffer_names = []
 
     if buffers:
         # Create temporary files for buffers and load them
         for buffer in buffers:
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+            filetype = buffer.name.split('.')[-1]
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.' + filetype)
             buffer_names.append(buffer.name)
             with open(temp_file.name, 'wb') as f:
                 f.write(buffer.getbuffer())  # Write buffer contents to a temporary file
-            buffer_loader = PyPDFLoader(temp_file.name)
-            bufferPages = buffer_loader.load_and_split(text_splitter=text_splitter_instance)
-            for page in bufferPages:
-                page.metadata['source'] = buffer.name
-            listOfBufferPages.append(bufferPages)
-            temp_file.close()  # Close the file so PyPDFLoader can access it
 
-    all_pages = listOfPages + listOfBufferPages if buffers else listOfPages
-    all_names = filenames + buffer_names if buffers else filenames
+            buffer_text = transcribe_audio(temp_file.name)
+            buffer_embedding = text_to_embedding(buffer_text)
 
-    # Create FAISS indices for all files and buffers
-    faiss_indices = {
-        str(name): FAISS.from_documents(pages, OpenAIEmbeddings(disallowed_special=()))
-        for name, pages in zip(all_names, all_pages)
-    }
+            audio_data[buffer.name] = {}
+            audio_data[buffer.name]['text'] = buffer_text
+            audio_data[buffer.name]['embedding'] = buffer_embedding
+            
+            temp_file.close()
 
     # Clean up temporary files
     for name in buffer_names:
         Path(name).unlink(missing_ok=True)
 
-    return faiss_indices
+    return audio_data
 
-faiss_indices = load_vectorstore()
+audio_data = process_audio()
 
 def initialize_conversation():
     chat = ChatOpenAI(model_name=model_version, temperature=0)
-    template = """The following is a friendly conversation between a human and an AI. The AI is talkative and provides lots of specific details from its context. If the AI does not know the answer to a question, it truthfully says it does not know. Excerpts from relevant documents the AI has read are included in the conversation and are used to answer questions more accurately. The AI is not perfect, and sometimes it says things that are inconsistent with what it has said before. The AI always replies succinctly with the answer to the question, and provides more information when asked. The AI recognizes questions asked to it are usually in reference to the provided context, even if the context is sometimes hard to understand, and answers with information relevant from the context.
+    initial_ai_message = "I'd like you to look at an image and describe what you see. Here's the image:"
+
+    template = f"""The following is a friendly conversation between a human and a speech therapist specializing in aphasia. The therapist is supportive and follows best practices from speech language therapy. The patient may be hard to understand, but the therapist tries their best and asks for clarification if the text is unclear. The therapist is not perfect, and sometimes it says things that are inconsistent with what it has said before.
 
     Current conversation:
-    {history}
-    Friend: {input}
-    AI:"""
+    Therapist: {initial_ai_message}
+    [Image: womanBakingCake.jpg]
+    Patient: {{input}}
+    Therapist:"""
     PROMPT = PromptTemplate(
         input_variables=["history", "input"], template=template
     )
@@ -126,73 +87,42 @@ def initialize_conversation():
         prompt=PROMPT,
         llm=chat, 
         verbose=False, 
-        memory=ConversationBufferMemory(human_prefix="Friend", )
+        memory=ConversationBufferMemory(human_prefix="Patient")
     )
 
 
 # Read the files from the directory using pathlib
-directory = Path("./example-docs")
+directory = Path("./example-audio")
 files = []
 if directory.exists():
     for file in directory.iterdir():
-        if file.suffix in [".txt", ".pdf", ".docx", ".xlsx"]:
+        if file.suffix in [".mp3", ".wav"]:
             files.append(str(file))
 
-def getTopK(query, doc_path):
-    doc_name = str(Path(doc_path))  # Normalize and convert to string
-    related = faiss_indices[doc_name].similarity_search_with_relevance_scores(query, k=num_sources)
-    return related
+def model_query(query):
+    """
+    Args:
+        query (str): audio file name of query
+    """
+    text = audio_data[query]['text']
 
-def model_query(query, document_names):
-    # Gather related context from documents for each query
-    all_related = []
-    for document_name in document_names:
-        related = getTopK(query, document_name)
-        all_related.extend(related)
-    all_related = sorted(all_related, key=lambda x: x[1], reverse=True)
-
-    # Filter out the context excerpts already present in the conversation and check relevancy score
-    unique_related = []
-    context_count = 0
-    MIN_RELEVANCY_SCORE = 0.0
-
-    for r in all_related:
-        if context_count >= num_sources:
-            break
-        content_hash = hash_content(str(r[0].page_content))
-        logging.info("Score: %s", r[1])
-        if content_hash not in st.session_state.context_hashes and r[1] >= MIN_RELEVANCY_SCORE:
-            unique_related.append(r)
-            st.session_state.context_hashes.add(content_hash)
-            context_count += 1
-
-    related = [r[0] for r in unique_related]
-
-    if not related:
-        ai_message = st.session_state.conversation.predict(input=query)
-        return ai_message, None
-    else:
-        context = " ".join([r.page_content for r in related])
-        ai_message = st.session_state.conversation.predict(input=context + " " + query)
-        return ai_message, related
+    ai_message = st.session_state.conversation.predict(input=text)
+    return ai_message, None
     
 # Sidebar elements for file uploading and selecting options
 with st.sidebar:
-    st.title("Document Query Settings")
+    st.title("Settings")
 
     uploaded_files = st.file_uploader("Choose files", accept_multiple_files=True)
     if uploaded_files:
         # Reload the vectorstore with new files including uploaded ones
-        faiss_indices = load_vectorstore(buffers=uploaded_files)  
+        audio_data = process_audio(buffers=uploaded_files)  
 
         uploaded_file_names = [uploaded_file.name for uploaded_file in uploaded_files]
         files.extend(uploaded_file_names)
 
     # Add a way to select which files to use for the model query
     selected_files = st.multiselect("Please select the files to query:", options=files)
-
-    # Add a slider for number of sources to return 1-5
-    num_sources = st.slider("Number of sources per document:", min_value=1, max_value=5, value=3)
 
     model_version = st.selectbox(
         "Select the GPT model version:",
@@ -219,7 +149,8 @@ chat_container = st.container()
 
 # Handle chat input and display
 with chat_container:
-    user_input = st.chat_input("Ask something", key="user_input")
+    st.image("woman-baking-cake.jpg", caption="Please describe what is happening in this image.")
+    user_input = st.chat_input("Say something", key="user_input")
 
     for message in st.session_state.chat_history:
         if message["role"] == "user":

@@ -3,10 +3,26 @@ import whisper
 import openai
 import numpy as np
 from pathlib import Path
+import os
 
 # openai.api_key = None  # Add your API key here for local testing
 
 def transcribe_audio(audio_path):
+    if isinstance(audio_path, str):
+        audio_path = Path(audio_path)
+        audio_path = os.path.abspath(audio_path)
+    print(audio_path)
+    # Check if the file exists
+    exists = os.path.exists(audio_path)
+    print(f"File Exists: {exists}")
+
+    # Check read permission
+    readable = os.access(audio_path, os.R_OK)
+    print(f"File Readable: {readable}")
+
+    # Check write permission
+    writable = os.access(audio_path, os.W_OK)
+    print(f"File Writable: {writable}")
     model = whisper.load_model("small")  # Use the latest model version
     audio = whisper.load_audio(audio_path)
     result = model.transcribe(audio)
