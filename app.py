@@ -7,8 +7,7 @@ from pathlib import Path
 import hashlib
 import tempfile
 import logging
-from audio_transcription_app import transcribe_audio, text_to_embedding, compare_embeddings, whisper_api
-import openai
+from audio_transcription_app import text_to_embedding, whisper_api
 from audiorecorder import audiorecorder
 
 logging.basicConfig(level=logging.INFO)
@@ -16,11 +15,11 @@ logging.basicConfig(level=logging.INFO)
 
 # Initialize session state variables if they don't exist
 if 'title' not in st.session_state:
-    st.session_state.title = "Aphasia Therapist"  # Default title
+    st.session_state.title = "Aphasia Therapist"
 
 # Define necessary embedding model, LLM, and vectorstore
 openai_api_key = st.secrets["OPENAI_API_KEY"]
-# OPENAI_API_KEY = 'sk-'
+# openai_api_key = 'sk-'
 
 def hash_content(content):
     return hashlib.md5(content.encode('utf-8')).hexdigest()
