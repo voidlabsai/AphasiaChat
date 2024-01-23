@@ -1,15 +1,8 @@
 import streamlit as st
-import os
-from langchain.vectorstores import FAISS
 from langchain.prompts.prompt import PromptTemplate
 from langchain.chains import ConversationChain
 from langchain.memory import ConversationBufferMemory
-from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.chat_models import ChatOpenAI
-from langchain.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter, CharacterTextSplitter
-import glob
-import pickle
+from langchain_openai.chat_models import ChatOpenAI
 from pathlib import Path
 import hashlib
 import tempfile
@@ -71,7 +64,15 @@ def process_audio(buffers=None):
 
     return audio_data
 
-audio_data = process_audio()
+# audio_data = process_audio()
+
+# Define the image descriptions
+image_descriptions = {
+        'example-images\\woman-baking-cake.jpg': "A woman in a black apron and blue shirt is putting icing on a cake in a kitchen.",
+        'example-images\\pepperoni-pizza.jpg': "An uncut pepperoni pizza.",
+        'example-images\\cat-and-dog.jpeg': "A cat and dog playing on the floor of a house."
+}
+
 
 def initialize_conversation():
     chat = ChatOpenAI(model_name=model_version, temperature=0, openai_api_key=OPENAI_API_KEY)
@@ -81,7 +82,7 @@ def initialize_conversation():
 
     Current conversation:
     Therapist: {initial_ai_message}
-    [Image: womanBakingCake.jpg]
+    Image description: {image_descriptions[selected_file]}
     {{history}}
     Patient: {{input}}
     Therapist:"""
@@ -97,11 +98,11 @@ def initialize_conversation():
 
 
 # Read the files from the directory using pathlib
-directory = Path("./example-audio")
+directory = Path("./example-images")
 files = []
 if directory.exists():
     for file in directory.iterdir():
-        if file.suffix in [".mp3", ".wav"]:
+        if file.suffix in [".jpg", ".png", ".jpeg"]:
             files.append(str(file))
 
 def model_query(query):
@@ -118,22 +119,27 @@ def model_query(query):
 with st.sidebar:
     st.title("Settings")
 
-    uploaded_files = st.file_uploader("Choose files", accept_multiple_files=True)
-    if uploaded_files:
-        # Reload the vectorstore with new files including uploaded ones
-        audio_data = process_audio(buffers=uploaded_files)  
-
-        uploaded_file_names = [uploaded_file.name for uploaded_file in uploaded_files]
-        files.extend(uploaded_file_names)
-
-    # Add a way to select which files to use for the model query
-    selected_files = st.multiselect("Please select the files to query:", options=files)
-
     model_version = st.selectbox(
         "Select the GPT model version:",
         options=["gpt-3.5-turbo-1106", "gpt-4-1106-preview"],
         index=0  # Default to gpt-3.5-turbo
     )
+
+    uploaded_files = st.file_uploader("Choose files", accept_multiple_files=True)
+    if uploaded_files:
+        # Reload the vectorstore with new files including uploaded ones
+
+        uploaded_file_names = [uploaded_file.name for uploaded_file in uploaded_files]
+        files.extend(uploaded_file_names)
+
+    # Add a way to select which files to use for the model query
+    if 'file_in_prompt' not in st.session_state:
+        st.session_state.file_in_prompt = files[0]
+    selected_file = st.selectbox("Please select the image to use:", options=files)
+    if selected_file != st.session_state.file_in_prompt:
+        initialize_conversation()
+
+    
 
     # Add reset button in sidebar
     if st.button('Reset Chat'):
@@ -146,45 +152,51 @@ if "context_hashes" not in st.session_state:
     st.session_state.context_hashes = set()
 
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+    st.session_state['chat_history'] = []
     initialize_conversation()
+
+if 'audio_key' not in st.session_state:
+    st.session_state.audio_key = 'audiorecorder_1'
+
+def reset_audiorecorder():
+    st.session_state.audio_key = 'audiorecorder_' + str(int(st.session_state.audio_key.split('_')[1]) + 1)
 
 # Main chat container
 chat_container = st.container()
 user_input = None
 
+print(st.session_state.conversation)
+
 # Handle chat input and display
 with chat_container:
-    st.image("woman-baking-cake.jpg", caption="Please describe what is happening in this image.", width=600)
-    audio = audiorecorder("Click to record", "Click to stop recording") # st.chat_input("Say something", key="user_input")
-
+    st.image(selected_file, caption="Please describe what you see in this image.", width=600)
+    audio = audiorecorder("Click to record", "Click to stop recording", key=st.session_state.audio_key) # st.chat_input("Say something", key="user_input")
     if len(audio) > 0:
         print("Recording saved to userRecording.wav")
-        filename = "userRecording" + str(len(st.session_state.chat_history)) + ".wav"
+        filename = "userRecording" + str(len(st.session_state.chat_history)) + ".wav" # 
         audio.export(filename, format="wav")
         user_input = whisper_api(filename)
-        print(user_input)
-        audio = None
 
     for message in st.session_state.chat_history:
         if message["role"] == "user":
             st.markdown(f"> **User**: {message['content']}")
-        elif message["role"] == "model":
-            st.markdown(f"> **Model**: {message['content']}")
+        elif message["role"] == "therapist":
+            st.markdown(f"> **Therapist**: {message['content']}")
         elif message["role"] == "context":
-            with st.expander("Click to see the context"):
-                for doc in message["content"]:
-                    st.markdown(f"> **Recording**: {doc.metadata['source']}")
+            with st.expander("Click to see the recording"):
+                st.audio(message['content'])
+                #st.markdown(f"> **Recording**: {message['content']}")
 
 
 # Handle chat input and display
 if user_input:
     st.session_state.chat_history.append({"role": "user", "content": user_input})
     model_response = model_query(user_input)
-    st.session_state.chat_history.append({"role": "model", "content": model_response})
-    context = None # implement context as audio recording
-    if context:
-        st.session_state.chat_history.append({"role": "context", "content": context})
+    st.session_state.chat_history.append({"role": "therapist", "content": model_response})
+    #context = None # implement context as audio recording
+    if len(audio) > 0:
+        st.session_state.chat_history.append({"role": "context", "content": filename})
+    reset_audiorecorder()
 
     # Use st.rerun() to update the display immediately after sending the message
     st.rerun()
