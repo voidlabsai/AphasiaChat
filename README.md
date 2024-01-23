@@ -5,7 +5,9 @@
 - Answer questions about images
 
 ## Usage
-- Run the Streamlit app at aphasiademo.streamlit.com
+- (TODO) Run the Streamlit app at aphasiachat.streamlit.com
+- Clone locally, create a folder .streamlit with a secrets.toml file containing OPENAI_API_KEY and XI_API_KEY strings.
+- $ streamlit run app.py
 
 ## Resetting the Conversation
 - You can reset the chat interface by clicking on the 'Reset Chat' button.
