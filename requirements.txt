@@ -1,9 +1,6 @@
 streamlit
 langchain
 openai
-glob2==0.7
-tiktoken==0.3.3
-openai-whisper
 numpy
 pathlib
 ffmpeg

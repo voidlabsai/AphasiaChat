@@ -23,6 +23,13 @@ if 'title' not in st.session_state:
 openai_api_key = st.secrets["OPENAI_API_KEY"]
 # openai_api_key = 'sk-'
 
+# Define the image descriptions
+image_descriptions = {
+        'example-images\\woman-baking-cake.jpg': "A woman in a black apron and blue shirt is putting icing on a cake in a kitchen.",
+        'example-images\\pepperoni-pizza.jpg': "An uncut pepperoni pizza.",
+        'example-images\\cat-and-dog.jpeg': "A cat and dog playing on the floor of a house."
+}
+
 def hash_content(content):
     return hashlib.md5(content.encode('utf-8')).hexdigest()
 
@@ -40,53 +47,6 @@ def whisper_api(audio_path):
 def text_to_embedding(text):
     response = openai.embeddings.create(input=text, model="text-embedding-ada-002")
     return np.array(response.data[0].embedding)
-
-@st.cache_data
-def process_audio(buffers=None):
-    example_audio_path = Path("example-audio")
-    filenames = list(example_audio_path.glob("*.mp3")) + list(example_audio_path.glob("*.wav"))
-    
-    audio_data = {}
-    for filename in filenames:
-        audio_data[filename.name] = {}
-        audio_data[filename.name]['text'] = whisper_api(str(filename))
-        audio_data[filename.name]['embedding'] = text_to_embedding(audio_data[filename.name]['text'])
-
-    buffer_names = []
-
-    if buffers:
-        # Create temporary files for buffers and load them
-        for buffer in buffers:
-            filetype = buffer.name.split('.')[-1]
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.' + filetype)
-            buffer_names.append(buffer.name)
-            with open(temp_file.name, 'wb') as f:
-                f.write(buffer.getbuffer())  # Write buffer contents to a temporary file
-
-            buffer_text = whisper_api(temp_file.name)
-            buffer_embedding = text_to_embedding(buffer_text)
-
-            audio_data[buffer.name] = {}
-            audio_data[buffer.name]['text'] = buffer_text
-            audio_data[buffer.name]['embedding'] = buffer_embedding
-            
-            temp_file.close()
-
-    # Clean up temporary files
-    for name in buffer_names:
-        Path(name).unlink(missing_ok=True)
-
-    return audio_data
-
-# audio_data = process_audio()
-
-# Define the image descriptions
-image_descriptions = {
-        'example-images\\woman-baking-cake.jpg': "A woman in a black apron and blue shirt is putting icing on a cake in a kitchen.",
-        'example-images\\pepperoni-pizza.jpg': "An uncut pepperoni pizza.",
-        'example-images\\cat-and-dog.jpeg': "A cat and dog playing on the floor of a house."
-}
-
 
 def initialize_conversation():
     chat = ChatOpenAI(model_name=model_version, temperature=0, openai_api_key=openai_api_key)
@@ -110,7 +70,6 @@ def initialize_conversation():
         memory=ConversationBufferMemory(human_prefix="Patient")
     )
 
-
 # Read the files from the directory using pathlib
 directory = Path("./example-images")
 files = []
@@ -120,14 +79,7 @@ if directory.exists():
             files.append(str(file))
 
 def model_query(query):
-    """
-    Args:
-        query (str): audio file name of query
-    """
-    # text = audio_data[query]['text']
-
-    ai_message = st.session_state.conversation.predict(input=query)
-    return ai_message
+    return st.session_state.conversation.predict(input=query)
     
 # Sidebar elements for file uploading and selecting options
 with st.sidebar:
@@ -142,18 +94,16 @@ with st.sidebar:
     uploaded_files = st.file_uploader("Choose files", accept_multiple_files=True)
     if uploaded_files:
         # Reload the vectorstore with new files including uploaded ones
-
         uploaded_file_names = [uploaded_file.name for uploaded_file in uploaded_files]
         files.extend(uploaded_file_names)
 
     # Add a way to select which files to use for the model query
     if 'file_in_prompt' not in st.session_state:
         st.session_state.file_in_prompt = files[0]
+
     selected_file = st.selectbox("Please select the image to use:", options=files)
     if selected_file != st.session_state.file_in_prompt:
         initialize_conversation()
-
-    
 
     # Add reset button in sidebar
     if st.button('Reset Chat'):
@@ -179,14 +129,11 @@ def reset_audiorecorder():
 chat_container = st.container()
 user_input = None
 
-print(st.session_state.conversation)
-
 # Handle chat input and display
 with chat_container:
     st.image(selected_file, caption="Please describe what you see in this image.", width=600)
     audio = audiorecorder("Click to record", "Click to stop recording", key=st.session_state.audio_key) # st.chat_input("Say something", key="user_input")
     if len(audio) > 0:
-        print("Recording saved to userRecording.wav")
         filename = "userRecording" + str(len(st.session_state.chat_history)) + ".wav" # 
         audio.export(filename, format="wav")
         user_input = whisper_api(filename)
@@ -200,7 +147,6 @@ with chat_container:
             with st.expander("Click to see the recording"):
                 st.audio(message['content'])
                 #st.markdown(f"> **Recording**: {message['content']}")
-
 
 # Handle chat input and display
 if user_input:
