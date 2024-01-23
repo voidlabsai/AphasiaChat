@@ -19,10 +19,8 @@ if 'title' not in st.session_state:
     st.session_state.title = "Aphasia Therapist"  # Default title
 
 # Define necessary embedding model, LLM, and vectorstore
-# openai_api_key = st.secrets["OPENAI_API_KEY"]
-openai.api_key = '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'
-OPENAI_API_KEY = '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'
-text_key = "text"
+openai_api_key = st.secrets["OPENAI_API_KEY"]
+# OPENAI_API_KEY = 'sk-'
 
 def hash_content(content):
     return hashlib.md5(content.encode('utf-8')).hexdigest()
@@ -75,7 +73,7 @@ image_descriptions = {
 
 
 def initialize_conversation():
-    chat = ChatOpenAI(model_name=model_version, temperature=0, openai_api_key=OPENAI_API_KEY)
+    chat = ChatOpenAI(model_name=model_version, temperature=0, openai_api_key=openai_api_key)
     initial_ai_message = "I'd like you to look at an image and describe what you see. Here's the image:"
 
     template = f"""The following is a friendly conversation between a human and a speech therapist specializing in aphasia. The therapist is supportive and follows best practices from speech language therapy. The patient may be hard to understand, but the therapist tries their best and asks for clarification if the text is unclear. The therapist is not perfect, and sometimes it says things that are inconsistent with what it has said before.

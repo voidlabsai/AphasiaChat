@@ -7,7 +7,7 @@ import os
 from openai import OpenAI
 
 # openai.api_key = None  # Add your API key here for local testing
-openai.api_key = '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'
+openai_api_key = st.secrets["OPENAI_API_KEY"]
 
 def transcribe_audio(audio_path):
     if isinstance(audio_path, str):
@@ -32,7 +32,7 @@ def transcribe_audio(audio_path):
     return result['text']
 
 def whisper_api(audio_path):
-    client = OpenAI(api_key='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')
+    client = OpenAI(api_key=openai_api_key)
 
     audio_file= open(audio_path, "rb")
     transcript = client.audio.transcriptions.create(
