@@ -14,7 +14,10 @@ from pathlib import Path
 import hashlib
 import tempfile
 import logging
-from audio_transcription_app import transcribe_audio, text_to_embedding, compare_embeddings
+from audio_transcription_app import transcribe_audio, text_to_embedding, compare_embeddings, whisper_api
+import openai
+from audiorecorder import audiorecorder
+
 logging.basicConfig(level=logging.INFO)
 
 
@@ -23,14 +26,15 @@ if 'title' not in st.session_state:
     st.session_state.title = "Aphasia Therapist"  # Default title
 
 # Define necessary embedding model, LLM, and vectorstore
-openai_api_key = st.secrets["OPENAI_API_KEY"]
-# OPENAI_API_KEY = ''
+# openai_api_key = st.secrets["OPENAI_API_KEY"]
+openai.api_key = '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'
+OPENAI_API_KEY = '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'
 text_key = "text"
 
 def hash_content(content):
     return hashlib.md5(content.encode('utf-8')).hexdigest()
 
-#@st.cache_data
+@st.cache_data
 def process_audio(buffers=None):
     example_audio_path = Path("example-audio")
     filenames = list(example_audio_path.glob("*.mp3")) + list(example_audio_path.glob("*.wav"))
@@ -38,7 +42,7 @@ def process_audio(buffers=None):
     audio_data = {}
     for filename in filenames:
         audio_data[filename.name] = {}
-        audio_data[filename.name]['text'] = transcribe_audio(str(filename))
+        audio_data[filename.name]['text'] = whisper_api(str(filename))
         audio_data[filename.name]['embedding'] = text_to_embedding(audio_data[filename.name]['text'])
 
     buffer_names = []
@@ -52,7 +56,7 @@ def process_audio(buffers=None):
             with open(temp_file.name, 'wb') as f:
                 f.write(buffer.getbuffer())  # Write buffer contents to a temporary file
 
-            buffer_text = transcribe_audio(temp_file.name)
+            buffer_text = whisper_api(temp_file.name)
             buffer_embedding = text_to_embedding(buffer_text)
 
             audio_data[buffer.name] = {}
@@ -70,7 +74,7 @@ def process_audio(buffers=None):
 audio_data = process_audio()
 
 def initialize_conversation():
-    chat = ChatOpenAI(model_name=model_version, temperature=0)
+    chat = ChatOpenAI(model_name=model_version, temperature=0, openai_api_key=OPENAI_API_KEY)
     initial_ai_message = "I'd like you to look at an image and describe what you see. Here's the image:"
 
     template = f"""The following is a friendly conversation between a human and a speech therapist specializing in aphasia. The therapist is supportive and follows best practices from speech language therapy. The patient may be hard to understand, but the therapist tries their best and asks for clarification if the text is unclear. The therapist is not perfect, and sometimes it says things that are inconsistent with what it has said before.
@@ -78,6 +82,7 @@ def initialize_conversation():
     Current conversation:
     Therapist: {initial_ai_message}
     [Image: womanBakingCake.jpg]
+    {{history}}
     Patient: {{input}}
     Therapist:"""
     PROMPT = PromptTemplate(
@@ -104,10 +109,10 @@ def model_query(query):
     Args:
         query (str): audio file name of query
     """
-    text = audio_data[query]['text']
+    # text = audio_data[query]['text']
 
-    ai_message = st.session_state.conversation.predict(input=text)
-    return ai_message, None
+    ai_message = st.session_state.conversation.predict(input=query)
+    return ai_message
     
 # Sidebar elements for file uploading and selecting options
 with st.sidebar:
@@ -146,11 +151,20 @@ if "chat_history" not in st.session_state:
 
 # Main chat container
 chat_container = st.container()
+user_input = None
 
 # Handle chat input and display
 with chat_container:
-    st.image("woman-baking-cake.jpg", caption="Please describe what is happening in this image.")
-    user_input = st.chat_input("Say something", key="user_input")
+    st.image("woman-baking-cake.jpg", caption="Please describe what is happening in this image.", width=600)
+    audio = audiorecorder("Click to record", "Click to stop recording") # st.chat_input("Say something", key="user_input")
+
+    if len(audio) > 0:
+        print("Recording saved to userRecording.wav")
+        filename = "userRecording" + str(len(st.session_state.chat_history)) + ".wav"
+        audio.export(filename, format="wav")
+        user_input = whisper_api(filename)
+        print(user_input)
+        audio = None
 
     for message in st.session_state.chat_history:
         if message["role"] == "user":
@@ -160,16 +174,15 @@ with chat_container:
         elif message["role"] == "context":
             with st.expander("Click to see the context"):
                 for doc in message["content"]:
-                    st.markdown(f"> **Context Document**: {doc.metadata['source']}")
-                    st.markdown(f"> **Page Number**: {doc.metadata['page']}")
-                    st.markdown(f"> **Content**: {doc.page_content}")
+                    st.markdown(f"> **Recording**: {doc.metadata['source']}")
 
 
 # Handle chat input and display
 if user_input:
     st.session_state.chat_history.append({"role": "user", "content": user_input})
-    model_response, context = model_query(user_input, selected_files)
+    model_response = model_query(user_input)
     st.session_state.chat_history.append({"role": "model", "content": model_response})
+    context = None # implement context as audio recording
     if context:
         st.session_state.chat_history.append({"role": "context", "content": context})
 

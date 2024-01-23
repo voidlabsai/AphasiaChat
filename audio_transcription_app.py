@@ -4,8 +4,10 @@ import openai
 import numpy as np
 from pathlib import Path
 import os
+from openai import OpenAI
 
 # openai.api_key = None  # Add your API key here for local testing
+openai.api_key = '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'
 
 def transcribe_audio(audio_path):
     if isinstance(audio_path, str):
@@ -29,9 +31,20 @@ def transcribe_audio(audio_path):
     print('Transcribed audio: ' + result['text'])
     return result['text']
 
+def whisper_api(audio_path):
+    client = OpenAI(api_key='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')
+
+    audio_file= open(audio_path, "rb")
+    transcript = client.audio.transcriptions.create(
+    model="whisper-1", 
+    file=audio_file,
+    response_format="text"
+    )
+    return transcript
+
 def text_to_embedding(text):
-    response = openai.Embedding.create(input=text, engine="text-embedding-ada-002")
-    return np.array(response['data'][0]['embedding'])
+    response = openai.embeddings.create(input=text, model="text-embedding-ada-002")
+    return np.array(response.data[0].embedding)
 
 def compare_embeddings(embedding1, embedding2):
     similarity = np.dot(embedding1, embedding2) / (np.linalg.norm(embedding1) * np.linalg.norm(embedding2))
