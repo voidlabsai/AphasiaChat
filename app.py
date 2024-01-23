@@ -7,8 +7,10 @@ from pathlib import Path
 import hashlib
 import tempfile
 import logging
-from audio_transcription_app import text_to_embedding, whisper_api
 from audiorecorder import audiorecorder
+import openai
+from openai import OpenAI
+import numpy as np
 
 logging.basicConfig(level=logging.INFO)
 
@@ -23,6 +25,21 @@ openai_api_key = st.secrets["OPENAI_API_KEY"]
 
 def hash_content(content):
     return hashlib.md5(content.encode('utf-8')).hexdigest()
+
+def whisper_api(audio_path):
+    client = OpenAI(api_key=openai_api_key)
+
+    audio_file= open(audio_path, "rb")
+    transcript = client.audio.transcriptions.create(
+    model="whisper-1", 
+    file=audio_file,
+    response_format="text"
+    )
+    return transcript
+
+def text_to_embedding(text):
+    response = openai.embeddings.create(input=text, model="text-embedding-ada-002")
+    return np.array(response.data[0].embedding)
 
 @st.cache_data
 def process_audio(buffers=None):
