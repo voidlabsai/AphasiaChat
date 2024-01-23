@@ -48,3 +48,10 @@ coverage.xml
 
 # Sphinx documentation
 docs/_build/
+
+# streamlit
+.streamlit/
+
+# recordings
+*.mp3
+*.wav

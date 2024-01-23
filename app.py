@@ -11,9 +11,38 @@ from audiorecorder import audiorecorder
 import openai
 from openai import OpenAI
 import numpy as np
+import base64
+import requests
 
 logging.basicConfig(level=logging.INFO)
 
+CHUNK_SIZE = 1024
+url = "https://api.elevenlabs.io/v1/text-to-speech/ThT5KcBeYPX3keUQqHPh" # Dorothy
+
+headers = {
+"Accept": "audio/mpeg",
+"Content-Type": "application/json",
+"xi-api-key": st.secrets["XI_API_KEY"]
+}
+
+def get_response_audio(text, conversation_number):
+    data = {
+        "text": text,
+        "model_id": "eleven_monolingual_v1",
+        "voice_settings": {
+            "stability": 0.5,
+            "similarity_boost": 0.5
+        }
+    }
+    response = requests.post(url, json=data, headers=headers)
+    if response.status_code != 200:
+        print(f"Error: {response.status_code}")
+        return None
+    with open('output' + conversation_number + '.mp3', 'wb') as f:
+        for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
+            if chunk:
+                f.write(chunk)
+    return 'output' + conversation_number + '.mp3'
 
 # Initialize session state variables if they don't exist
 if 'title' not in st.session_state:
@@ -29,6 +58,20 @@ image_descriptions = {
         'example-images\\pepperoni-pizza.jpg': "An uncut pepperoni pizza.",
         'example-images\\cat-and-dog.jpeg': "A cat and dog playing on the floor of a house."
 }
+
+def autoplay_audio(file_path: str):
+    with open(file_path, "rb") as f:
+        data = f.read()
+        b64 = base64.b64encode(data).decode()
+        md = f"""
+            <audio controls autoplay="true">
+            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+            </audio>
+            """
+        st.markdown(
+            md,
+            unsafe_allow_html=True,
+        )
 
 def hash_content(content):
     return hashlib.md5(content.encode('utf-8')).hexdigest()
@@ -122,6 +165,9 @@ if "chat_history" not in st.session_state:
 if 'audio_key' not in st.session_state:
     st.session_state.audio_key = 'audiorecorder_1'
 
+if 'response_filename' not in st.session_state:
+    st.session_state.response_filename = None
+
 def reset_audiorecorder():
     st.session_state.audio_key = 'audiorecorder_' + str(int(st.session_state.audio_key.split('_')[1]) + 1)
 
@@ -144,14 +190,16 @@ with chat_container:
         elif message["role"] == "therapist":
             st.markdown(f"> **Therapist**: {message['content']}")
         elif message["role"] == "context":
-            with st.expander("Click to see the recording"):
+            with st.expander("Click to see the recordings"):
                 st.audio(message['content'])
-                #st.markdown(f"> **Recording**: {message['content']}")
-
+                if st.session_state.response_filename:
+                    autoplay_audio(st.session_state.response_filename)
+    
 # Handle chat input and display
 if user_input:
     st.session_state.chat_history.append({"role": "user", "content": user_input})
     model_response = model_query(user_input)
+    st.session_state.response_filename = get_response_audio(model_response, str(len(st.session_state.chat_history)))
     st.session_state.chat_history.append({"role": "therapist", "content": model_response})
     #context = None # implement context as audio recording
     if len(audio) > 0:
