@@ -1,111 +1,38 @@
 import streamlit as st
-from langchain.prompts.prompt import PromptTemplate
+from audiorecorder import audiorecorder
+
 from langchain.chains import ConversationChain
 from langchain.memory import ConversationBufferMemory
+from langchain.prompts.prompt import PromptTemplate
 from langchain_openai.chat_models import ChatOpenAI
-from pathlib import Path
-import hashlib
-import tempfile
+
 import logging
-from audiorecorder import audiorecorder
-import openai
-from openai import OpenAI
-import numpy as np
-import base64
-import requests
+
+from audio import get_response_audio, autoplay_audio, whisper_api
+from constants import openai_api_key, image_and_word_descriptions, filepaths, systemMessage, initial_ai_message, exercise_examples, initial_therapist_message
 
 logging.basicConfig(level=logging.INFO)
-
-CHUNK_SIZE = 1024
-url = "https://api.elevenlabs.io/v1/text-to-speech/ThT5KcBeYPX3keUQqHPh" # Dorothy
-
-headers = {
-"Accept": "audio/mpeg",
-"Content-Type": "application/json",
-"xi-api-key": st.secrets["XI_API_KEY"]
-}
-
-def get_response_audio(text, conversation_number):
-    data = {
-        "text": text,
-        "model_id": "eleven_monolingual_v1",
-        "voice_settings": {
-            "stability": 0.5,
-            "similarity_boost": 0.5
-        }
-    }
-    response = requests.post(url, json=data, headers=headers)
-    if response.status_code != 200:
-        print(f"Error: {response.status_code}")
-        return None
-    with open('output' + conversation_number + '.mp3', 'wb') as f:
-        for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
-            if chunk:
-                f.write(chunk)
-    return 'output' + conversation_number + '.mp3'
 
 # Initialize session state variables if they don't exist
 if 'title' not in st.session_state:
     st.session_state.title = "Aphasia Therapist"
 
-# Define necessary embedding model, LLM, and vectorstore
-openai_api_key = st.secrets["OPENAI_API_KEY"]
-# openai_api_key = 'sk-'
-
-# Define the image descriptions
-image_descriptions = {
-        'example-images\\woman-baking-cake.jpg': "A woman in a black apron and blue shirt is putting icing on a cake in a kitchen.",
-        'example-images\\pepperoni-pizza.jpg': "An uncut pepperoni pizza.",
-        'example-images\\cat-and-dog.jpeg': "A cat and dog playing on the floor of a house."
-}
-
-def autoplay_audio(file_path: str):
-    with open(file_path, "rb") as f:
-        data = f.read()
-        b64 = base64.b64encode(data).decode()
-        md = f"""
-            <audio controls autoplay="true">
-            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-            </audio>
-            """
-        st.markdown(
-            md,
-            unsafe_allow_html=True,
-        )
-
-def hash_content(content):
-    return hashlib.md5(content.encode('utf-8')).hexdigest()
-
-def whisper_api(audio_path):
-    client = OpenAI(api_key=openai_api_key)
-
-    audio_file= open(audio_path, "rb")
-    transcript = client.audio.transcriptions.create(
-    model="whisper-1", 
-    file=audio_file,
-    response_format="text"
-    )
-    return transcript
-
-def text_to_embedding(text):
-    response = openai.embeddings.create(input=text, model="text-embedding-ada-002")
-    return np.array(response.data[0].embedding)
-
-def initialize_conversation():
+def initialize_conversation(model_version="gpt-3.5-turbo-1106", selected_problem=1, exercise_number='Exercise 1'):
     chat = ChatOpenAI(model_name=model_version, temperature=0, openai_api_key=openai_api_key)
-    initial_ai_message = "I'd like you to look at an image and describe what you see. Here's the image:"
 
-    template = f"""The following is a friendly conversation between a human and a speech therapist specializing in aphasia. The therapist is supportive and follows best practices from speech language therapy. The patient may be hard to understand, but the therapist tries their best and asks for clarification if the text is unclear. The therapist is not perfect, and sometimes it says things that are inconsistent with what it has said before.
-
+    template = f"""{systemMessage}
+    {exercise_examples[exercise_number]}
     Current conversation:
-    Therapist: {initial_ai_message}
-    Image description: {image_descriptions[selected_file]}
+    Therapist: {initial_ai_message[exercise_number]}
+    {image_and_word_descriptions[exercise_number][selected_problem-1]}
     {{history}}
     Patient: {{input}}
     Therapist:"""
+
     PROMPT = PromptTemplate(
         input_variables=["history", "input"], template=template
     )
+
     st.session_state.conversation = ConversationChain(
         prompt=PROMPT,
         llm=chat, 
@@ -113,17 +40,34 @@ def initialize_conversation():
         memory=ConversationBufferMemory(human_prefix="Patient")
     )
 
-# Read the files from the directory using pathlib
-directory = Path("./example-images")
-files = []
-if directory.exists():
-    for file in directory.iterdir():
-        if file.suffix in [".jpg", ".png", ".jpeg"]:
-            files.append(str(file))
-
 def model_query(query):
     return st.session_state.conversation.predict(input=query)
-    
+
+def reset_audiorecorder():
+    st.session_state.audio_key = 'audiorecorder_' + str(int(st.session_state.audio_key.split('_')[1]) + 1)
+
+def reset_history(exercise_number='Exercise 1'):
+    st.session_state.chat_history = []
+    st.session_state.chat_history.append({"role": "therapist", "content": initial_therapist_message[exercise_number]})
+    if exercise_number != "Exercise 1":
+        st.session_state.chat_history.append({"role": "Initial Prompt", "content": exercise_number})
+
+if 'exercise_number' not in st.session_state:
+    st.session_state.exercise_number = 'Exercise 1'
+
+if 'selected_problem' not in st.session_state:
+        st.session_state.selected_problem = 1
+
+if 'audio_key' not in st.session_state:
+    st.session_state.audio_key = 'audiorecorder_1'
+
+if 'response_filename' not in st.session_state:
+    st.session_state.response_filename = None
+
+if "chat_history" not in st.session_state:
+    reset_history()
+    initialize_conversation()
+
 # Sidebar elements for file uploading and selecting options
 with st.sidebar:
     st.title("Settings")
@@ -134,42 +78,26 @@ with st.sidebar:
         index=0  # Default to gpt-3.5-turbo
     )
 
-    uploaded_files = st.file_uploader("Choose files", accept_multiple_files=True)
-    if uploaded_files:
-        # Reload the vectorstore with new files including uploaded ones
-        uploaded_file_names = [uploaded_file.name for uploaded_file in uploaded_files]
-        files.extend(uploaded_file_names)
+    exercise_number = st.selectbox(
+        "Select the exercise number:",
+        options=["Exercise 1", "Exercise 2", "Exercise 3"],
+        index=0  # Default to exercise 1
+    )
+    if exercise_number != st.session_state.exercise_number:
+        st.session_state.exercise_number = exercise_number
+        reset_history(exercise_number=st.session_state.exercise_number)
+        initialize_conversation(model_version=model_version, selected_problem=st.session_state.selected_problem, exercise_number=st.session_state.exercise_number)
 
-    # Add a way to select which files to use for the model query
-    if 'file_in_prompt' not in st.session_state:
-        st.session_state.file_in_prompt = files[0]
-
-    selected_file = st.selectbox("Please select the image to use:", options=files)
-    if selected_file != st.session_state.file_in_prompt:
-        initialize_conversation()
+    selected_problem = st.selectbox("Please select the problem number:", options=[i+1 for i in range(len(filepaths))])
+    if selected_problem != st.session_state.selected_problem:
+        st.session_state.selected_problem = selected_problem
+        initialize_conversation(model_version=model_version, selected_problem=st.session_state.selected_problem, exercise_number=st.session_state.exercise_number)
 
     # Add reset button in sidebar
     if st.button('Reset Chat'):
-        st.session_state.chat_history = []
-        st.session_state.context_hashes = set()
-        initialize_conversation()
+        reset_history(exercise_number=st.session_state.exercise_number)
+        initialize_conversation(model_version=model_version, selected_problem=st.session_state.selected_problem, exercise_number=st.session_state.exercise_number)
         st.rerun()
-
-if "context_hashes" not in st.session_state:
-    st.session_state.context_hashes = set()
-
-if "chat_history" not in st.session_state:
-    st.session_state['chat_history'] = []
-    initialize_conversation()
-
-if 'audio_key' not in st.session_state:
-    st.session_state.audio_key = 'audiorecorder_1'
-
-if 'response_filename' not in st.session_state:
-    st.session_state.response_filename = None
-
-def reset_audiorecorder():
-    st.session_state.audio_key = 'audiorecorder_' + str(int(st.session_state.audio_key.split('_')[1]) + 1)
 
 # Main chat container
 chat_container = st.container()
@@ -177,18 +105,23 @@ user_input = None
 
 # Handle chat input and display
 with chat_container:
-    st.image(selected_file, caption="Please describe what you see in this image.", width=600)
-    audio = audiorecorder("Click to record", "Click to stop recording", key=st.session_state.audio_key) # st.chat_input("Say something", key="user_input")
+    if st.session_state.exercise_number == "Exercise 1":
+        st.image(filepaths[selected_problem-1], caption="Please describe what you see in this image.", width=600)
+
+    audio = audiorecorder("Click to record", "Click to stop recording", key=st.session_state.audio_key)
+
     if len(audio) > 0:
-        filename = "userRecording" + str(len(st.session_state.chat_history)) + ".wav" # 
+        filename = "userRecording" + str(len(st.session_state.chat_history)) + ".wav"
         audio.export(filename, format="wav")
         user_input = whisper_api(filename)
 
     for message in st.session_state.chat_history:
-        if message["role"] == "user":
+        if message["role"] == "Patient":
             st.markdown(f"> **User**: {message['content']}")
         elif message["role"] == "therapist":
             st.markdown(f"> **Therapist**: {message['content']}")
+        elif message["role"] == "Initial Prompt":
+            st.markdown(f"<h1 style='text-align: center; color: black;'>{image_and_word_descriptions[exercise_number][selected_problem-1]}</h1>", unsafe_allow_html=True)
         elif message["role"] == "context":
             with st.expander("Click to see the recordings"):
                 st.audio(message['content'])
@@ -197,7 +130,7 @@ with chat_container:
     
 # Handle chat input and display
 if user_input:
-    st.session_state.chat_history.append({"role": "user", "content": user_input})
+    st.session_state.chat_history.append({"role": "Patient", "content": user_input})
     model_response = model_query(user_input)
     st.session_state.response_filename = get_response_audio(model_response, str(len(st.session_state.chat_history)))
     st.session_state.chat_history.append({"role": "therapist", "content": model_response})
