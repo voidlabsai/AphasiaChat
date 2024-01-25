@@ -13,9 +13,46 @@ from constants import openai_api_key, image_and_word_descriptions, filepaths, sy
 
 logging.basicConfig(level=logging.INFO)
 
-# Initialize session state variables if they don't exist
-if 'title' not in st.session_state:
-    st.session_state.title = "Aphasia Therapist"
+# CSS for chat messages
+st.markdown("""
+<style>
+.chat-message {
+    padding: 10px;
+    border-radius: 20px;
+    margin: 5px 0;
+    width: fit-content;
+    max-width: 80%;
+}
+
+.patient-message {
+    background-color: #39ff5a;  /* Green background for patient */
+    margin-left: auto;  /* Right aligns the message */
+    text-align: left;
+}
+
+.therapist-message {
+    background-color: #d8d8d8;  /* Gray background for therapist */
+    text-align: left;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Custom CSS for sticky footer (not working yet)
+st.markdown("""
+<style>
+.footer {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    background-color: #f1f1f1;  # You can change the background color
+    text-align: center;
+    padding: 10px 0;
+    z-index: 1000;
+}
+</style>
+""", unsafe_allow_html=True)
+
 
 def initialize_conversation(model_version="gpt-3.5-turbo-1106", selected_problem=1, exercise_number='Exercise 1'):
     chat = ChatOpenAI(model_name=model_version, temperature=0, openai_api_key=openai_api_key)
@@ -83,6 +120,7 @@ with st.sidebar:
         options=["Exercise 1", "Exercise 2", "Exercise 3"],
         index=0  # Default to exercise 1
     )
+
     if exercise_number != st.session_state.exercise_number:
         st.session_state.exercise_number = exercise_number
         reset_history(exercise_number=st.session_state.exercise_number)
@@ -103,23 +141,24 @@ with st.sidebar:
 chat_container = st.container()
 user_input = None
 
+# Footer with audio recorder (using an emoji as a microphone icon)
+footer_container = st.empty()  # Use an empty container to insert elements
+with footer_container.container():
+    st.markdown('<div class="footer">', unsafe_allow_html=True)
+    audio = audiorecorder("🎤", "Click to stop recording", key=st.session_state.audio_key)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
 # Handle chat input and display
 with chat_container:
     if st.session_state.exercise_number == "Exercise 1":
-        st.image(filepaths[selected_problem-1], caption="Please describe what you see in this image.", width=600)
-
-    audio = audiorecorder("Click to record", "Click to stop recording", key=st.session_state.audio_key)
-
-    if len(audio) > 0:
-        filename = "userRecording" + str(len(st.session_state.chat_history)) + ".wav"
-        audio.export(filename, format="wav")
-        user_input = whisper_api(filename)
+        st.image(filepaths[selected_problem-1], use_column_width="always")
 
     for message in st.session_state.chat_history:
         if message["role"] == "Patient":
-            st.markdown(f"> **User**: {message['content']}")
+            st.markdown(f'<div class="chat-message patient-message">{message["content"]}</div>', unsafe_allow_html=True)
         elif message["role"] == "therapist":
-            st.markdown(f"> **Therapist**: {message['content']}")
+            st.markdown(f'<div class="chat-message therapist-message">{message["content"]}</div>', unsafe_allow_html=True)
         elif message["role"] == "Initial Prompt":
             st.markdown(f"<h1 style='text-align: center; color: black;'>{image_and_word_descriptions[exercise_number][selected_problem-1]}</h1>", unsafe_allow_html=True)
         elif message["role"] == "context":
@@ -127,17 +166,21 @@ with chat_container:
                 st.audio(message['content'])
                 if st.session_state.response_filename:
                     autoplay_audio(st.session_state.response_filename)
-    
+
+    if len(audio) > 0:
+        filename = "userRecording" + str(len(st.session_state.chat_history)) + ".wav"
+        audio.export(filename, format="wav")
+        user_input = whisper_api(filename)
+
 # Handle chat input and display
 if user_input:
-    st.session_state.chat_history.append({"role": "Patient", "content": user_input})
     model_response = model_query(user_input)
     st.session_state.response_filename = get_response_audio(model_response, str(len(st.session_state.chat_history)))
-    st.session_state.chat_history.append({"role": "therapist", "content": model_response})
-    #context = None # implement context as audio recording
-    if len(audio) > 0:
-        st.session_state.chat_history.append({"role": "context", "content": filename})
-    reset_audiorecorder()
 
+    st.session_state.chat_history.append({"role": "Patient", "content": user_input})
+    st.session_state.chat_history.append({"role": "therapist", "content": model_response})
+    st.session_state.chat_history.append({"role": "context", "content": filename})
+
+    reset_audiorecorder()
     # Use st.rerun() to update the display immediately after sending the message
     st.rerun()
