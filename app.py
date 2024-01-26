@@ -7,6 +7,7 @@ from langchain.prompts.prompt import PromptTemplate
 from langchain_openai.chat_models import ChatOpenAI
 
 import logging
+import time
 
 from audio import get_response_audio, autoplay_audio, whisper_api
 from constants import openai_api_key, image_and_word_descriptions, filepaths, systemMessage, initial_ai_message, exercise_examples, initial_therapist_message
@@ -89,6 +90,9 @@ def reset_history(exercise_number='Exercise 1'):
     if exercise_number != "Exercise 1":
         st.session_state.chat_history.append({"role": "Initial Prompt", "content": exercise_number})
 
+if 'model_version' not in st.session_state:
+    st.session_state.model_version = 'gpt-3.5-turbo-1106'
+
 if 'exercise_number' not in st.session_state:
     st.session_state.exercise_number = 'Exercise 1'
 
@@ -115,6 +119,10 @@ with st.sidebar:
         index=0  # Default to gpt-3.5-turbo
     )
 
+    if model_version != st.session_state.model_version:
+        st.session_state.model_version = model_version
+        initialize_conversation(model_version=st.session_state.model_version, selected_problem=st.session_state.selected_problem, exercise_number=st.session_state.exercise_number)
+
     exercise_number = st.selectbox(
         "Select the exercise number:",
         options=["Exercise 1", "Exercise 2", "Exercise 3"],
@@ -124,17 +132,22 @@ with st.sidebar:
     if exercise_number != st.session_state.exercise_number:
         st.session_state.exercise_number = exercise_number
         reset_history(exercise_number=st.session_state.exercise_number)
-        initialize_conversation(model_version=model_version, selected_problem=st.session_state.selected_problem, exercise_number=st.session_state.exercise_number)
+        initialize_conversation(model_version=st.session_state.model_version, selected_problem=st.session_state.selected_problem, exercise_number=st.session_state.exercise_number)
 
-    selected_problem = st.selectbox("Please select the problem number:", options=[i+1 for i in range(len(filepaths))])
+    selected_problem = st.selectbox(
+        "Please select the problem number:", 
+        options=[i+1 for i in range(len(filepaths))],
+        index=0  # Default to problem 1
+    )
+    
     if selected_problem != st.session_state.selected_problem:
         st.session_state.selected_problem = selected_problem
-        initialize_conversation(model_version=model_version, selected_problem=st.session_state.selected_problem, exercise_number=st.session_state.exercise_number)
+        initialize_conversation(model_version=st.session_state.model_version, selected_problem=st.session_state.selected_problem, exercise_number=st.session_state.exercise_number)
 
     # Add reset button in sidebar
-    if st.button('Reset Chat'):
+    if st.button('Reset Chat', key="reset_button"):
         reset_history(exercise_number=st.session_state.exercise_number)
-        initialize_conversation(model_version=model_version, selected_problem=st.session_state.selected_problem, exercise_number=st.session_state.exercise_number)
+        initialize_conversation(model_version=st.session_state.model_version, selected_problem=st.session_state.selected_problem, exercise_number=st.session_state.exercise_number)
         st.rerun()
 
 # Main chat container
@@ -148,11 +161,20 @@ with footer_container.container():
     audio = audiorecorder("🎤", "Click to stop recording", key=st.session_state.audio_key)
     st.markdown('</div>', unsafe_allow_html=True)
 
+    if len(st.session_state.chat_history) > 2 and r"Let's move on to the next problem." in st.session_state.chat_history[-2]["content"]:
+        if st.button("Next Problem", key="next_problem_button" , use_container_width=True, type="primary"):
+            selected_problem = st.session_state.selected_problem + 1
+            st.session_state.selected_problem += 1
+            reset_history(exercise_number=st.session_state.exercise_number)
+            initialize_conversation(model_version=st.session_state.model_version, selected_problem=st.session_state.selected_problem, exercise_number=st.session_state.exercise_number)
+            st.rerun()
+
 
 # Handle chat input and display
 with chat_container:
     if st.session_state.exercise_number == "Exercise 1":
-        st.image(filepaths[selected_problem-1], use_column_width="always")
+        print('selected problem: ', selected_problem, st.session_state.selected_problem)
+        st.image(filepaths[st.session_state.selected_problem-1], use_column_width="always")
 
     for message in st.session_state.chat_history:
         if message["role"] == "Patient":

@@ -24,7 +24,7 @@ if directory.exists():
         if file.suffix in [".jpg", ".png", ".jpeg"]:
             filepaths.append(str(file))
 
-systemMessage = "System Message: The following is a friendly conversation between a patient and a speech therapist specializing in treating broca's aphasia. The therapist is supportive and follows best practices from speech language therapy. The patient may be hard to understand because their speech is transcribed to text using automated text to speech software, but the therapist tries their best and asks for clarification if the text is unclear, using their understanding of how text to speech can incorrectly transcribe certain sounds to best guess what the patient is trying to say when unclear. The therapist is not perfect, and sometimes it says things that are inconsistent with what it has said before."
+systemMessage = "System Message: The following is a friendly conversation between a patient and a speech therapist specializing in treating broca's aphasia. The therapist is supportive and follows best practices from speech language therapy. The patient may be hard to understand because their speech is transcribed to text using automated text to speech software, but the therapist tries their best and asks for clarification if the text is unclear, using their understanding of how text to speech can incorrectly transcribe certain sounds to best guess what the patient is trying to say when unclear. After the patient correctly completes the exercise, the therapist will move on to the next exercise by saying, 'Let's move on to the next problem.' Ensure you only respond as the therapist and do not respond as the patient. If the patient correctly completes the exercise in one turn of conversation, move on. If the patient has not completed the exercise after five turns, move on. Do not ask for information that has already been given."
 initial_ai_message = {'Exercise 1': "I'd like you to look at an image and describe what you see. Here's a description of the image:",
                       'Exercise 2': "I'd like you to form a sentence using the words I give you. Here are the words:",
                       'Exercise 3': "I'd like you to form a passive sentence using the words I give you. Here are the words:"}
@@ -41,7 +41,7 @@ exercise_1_examples = f"""Exercise Description: This exercise is focused on imag
     Patient: Ba... ball.
     Therapist: Yes, that's right! It's a ball. Can you tell me what color it is?
     Patient: Re... red.
-    Therapist: Excellent! It's a red ball.
+    Therapist: Excellent! It's a red ball. Let's move on to the next problem.
 
     Example conversation 2:
     Therapist: Look at this picture. What's in it?
@@ -49,7 +49,7 @@ exercise_1_examples = f"""Exercise Description: This exercise is focused on imag
     Patient: Cat... sleep.
     Therapist: Yes, good job! The cat is sleeping. Where is the cat sleeping?
     Patient: So... sofa.
-    Therapist: That's correct, the cat is sleeping on the sofa.
+    Therapist: That's correct, the cat is sleeping on the sofa. Let's move on to the next problem.
 
     Example conversation 3:
     Therapist: Can you describe what this image shows?
@@ -57,7 +57,7 @@ exercise_1_examples = f"""Exercise Description: This exercise is focused on imag
     Patient: Car... blue.
     Therapist: Right, it's a car and it's blue. Where is the car?
     Patient: House... outside.
-    Therapist: Perfect, the car is parked outside a house.
+    Therapist: Perfect, the car is parked outside a house. Let's move on to the next problem.
 
     Example conversation 4:
     Therapist: What do you see in this image?
@@ -65,7 +65,7 @@ exercise_1_examples = f"""Exercise Description: This exercise is focused on imag
     Patient: Ap... apples.
     Therapist: Yes, they are apples. How many apples are there?
     Patient: Three.
-    Therapist: That's right, there are three apples.
+    Therapist: That's right, there are three apples. Let's move on to the next problem.
 
     Example conversation 5:
     Therapist: Tell me about this picture.
@@ -73,7 +73,7 @@ exercise_1_examples = f"""Exercise Description: This exercise is focused on imag
     Patient: Bike... ride.
     Therapist: Yes, someone is riding a bike. Where are they?
     Patient: Park.
-    Therapist: Great! They are riding a bike in the park."""
+    Therapist: Great! They are riding a bike in the park. Let's move on to the next problem."""
 
 exercise_2_examples = f"""Exercise Description: This exercise is focused on forming active sentences. Start with a simple sentence and then a more complex one.
 
